@@ -94,7 +94,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Create a virtual environment and install dependencies in one step
 uv sync
 
-# Optional: Install additional LLM providers (anthropic, gemini, groq, voyage, sentence-transformers)
+# Optional: Install Gemini support only
+uv sync --extra gemini
+
+# Optional: Install all additional providers (Anthropic, Gemini, Groq, Voyage, Sentence Transformers)
 uv sync --extra providers
 ```
 
@@ -373,6 +376,8 @@ SEMAPHORE_LIMIT=10  # Adjust based on your LLM provider tier
 
 The Graphiti MCP server can be deployed using Docker with your choice of database backend. The Dockerfile uses `uv` for package management, ensuring consistent dependency installation.
 
+Docker builds install the `gemini` extra by default so Gemini LLM and embedding providers resolve correctly without pulling in every optional provider package. Override this with `MCP_PROVIDER_EXTRA` if you want a different extra, or set it to an empty value to build without optional provider packages.
+
 A pre-built Graphiti MCP container is available at: `zepai/knowledge-graph-mcp`
 
 #### Environment Configuration
@@ -390,9 +395,11 @@ Before running Docker Compose, configure your API keys using a `.env` file (reco
    # Required - at least one LLM provider API key
    OPENAI_API_KEY=your_openai_api_key_here
 
+   # Optional - Gemini provider
+   GOOGLE_API_KEY=your_google_key
+
    # Optional - other LLM providers
    ANTHROPIC_API_KEY=your_anthropic_key
-   GOOGLE_API_KEY=your_google_key
    GROQ_API_KEY=your_groq_key
 
    # Optional - embedder providers
@@ -407,6 +414,19 @@ Before running Docker Compose, configure your API keys using a `.env` file (reco
 
 ```bash
 cd graphiti/mcp_server
+```
+
+Optional build override examples:
+
+```bash
+# Default: install Gemini support only
+docker compose build
+
+# Install all optional providers instead
+MCP_PROVIDER_EXTRA=providers docker compose build
+
+# Install no optional providers
+MCP_PROVIDER_EXTRA= docker compose build
 ```
 
 ##### Option 1: FalkorDB Combined Container (Default)

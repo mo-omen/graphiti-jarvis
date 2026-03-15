@@ -119,10 +119,20 @@ class LLMClientFactory:
                 # Use the same model for both main and small model slots
                 small_model = config.model
 
+                api_url = config.providers.openai.api_url
+                # Only pass base_url when it differs from the default so the SDK
+                # can still fall back to the OPENAI_BASE_URL env var when unset.
+                base_url = (
+                    api_url
+                    if api_url and api_url != 'https://api.openai.com/v1'
+                    else None
+                )
+
                 llm_config = CoreLLMConfig(
                     api_key=api_key,
                     model=config.model,
                     small_model=small_model,
+                    base_url=base_url,
                     temperature=config.temperature,
                     max_tokens=config.max_tokens,
                 )

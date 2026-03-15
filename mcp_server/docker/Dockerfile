@@ -29,39 +29,46 @@ ENV UV_COMPILE_BYTECODE=1 \
     MCP_SERVER_HOST="0.0.0.0" \
     PYTHONUNBUFFERED=1
 
+# Copy local graphiti-core source to /app so the mcp_server's uv.sources
+# path = ".." reference resolves to the local (patched) version instead of PyPI.
+WORKDIR /app
+COPY graphiti_core/ ./graphiti_core/
+COPY pyproject.toml README.md ./
+
 # Set up MCP server directory
 WORKDIR /app/mcp
 
-# Accept graphiti-core version as build argument
-ARG GRAPHITI_CORE_VERSION=0.28.1
+# Accept graphiti-core version as build argument (kept for labels)
+ARG GRAPHITI_CORE_VERSION=0.28.2
+ARG MCP_PROVIDER_EXTRA=gemini
 
 # Copy project files for dependency installation
-COPY pyproject.toml uv.lock ./
+COPY mcp_server/pyproject.toml mcp_server/uv.lock ./
 
-# Remove the local path override for graphiti-core in Docker builds
-# and regenerate lock file to match the PyPI version
-RUN sed -i '/\[tool\.uv\.sources\]/,/graphiti-core/d' pyproject.toml && \
-    if [ -n "${GRAPHITI_CORE_VERSION}" ]; then \
-      sed -i "s/graphiti-core\[falkordb\][>=]\+[0-9]\+\.[0-9]\+\.[0-9]\+/graphiti-core[falkordb]==${GRAPHITI_CORE_VERSION}/" pyproject.toml; \
-    fi && \
-    echo "Regenerating lock file for PyPI graphiti-core..." && \
+# Regenerate lock file using the local graphiti-core source
+# (uv.sources path = ".." resolves to /app where we placed the local source)
+RUN echo "Regenerating lock file with local graphiti-core..." && \
     rm -f uv.lock && \
     uv lock
 
 # Install Python dependencies (exclude dev dependency group)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-group dev
+    if [ -n "${MCP_PROVIDER_EXTRA}" ]; then \
+      uv sync --no-group dev --extra "${MCP_PROVIDER_EXTRA}"; \
+    else \
+      uv sync --no-group dev; \
+    fi
 
 # Store graphiti-core version
-RUN echo "${GRAPHITI_CORE_VERSION}" > /app/mcp/.graphiti-core-version
+RUN echo "${GRAPHITI_CORE_VERSION}-local" > /app/mcp/.graphiti-core-version
 
 # Copy MCP server application code
-COPY main.py ./
-COPY src/ ./src/
-COPY config/ ./config/
+COPY mcp_server/main.py ./
+COPY mcp_server/src/ ./src/
+COPY mcp_server/config/ ./config/
 
 # Copy FalkorDB combined config (uses localhost since both services in same container)
-COPY config/config-docker-falkordb-combined.yaml /app/mcp/config/config.yaml
+COPY mcp_server/config/config-docker-falkordb-combined.yaml /app/mcp/config/config.yaml
 
 # Create log and data directories
 RUN mkdir -p /var/log/graphiti /var/lib/falkordb/data
@@ -112,7 +119,7 @@ EOF
 RUN chmod +x /start-services.sh
 
 # Add Docker labels with version information
-ARG MCP_SERVER_VERSION=1.0.1
+ARG MCP_SERVER_VERSION=1.0.2
 ARG BUILD_DATE
 ARG VCS_REF
 LABEL org.opencontainers.image.title="FalkorDB + Graphiti MCP Server" \
@@ -122,7 +129,8 @@ LABEL org.opencontainers.image.title="FalkorDB + Graphiti MCP Server" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.vendor="Zep AI" \
       org.opencontainers.image.source="https://github.com/zep-ai/graphiti" \
-      graphiti.core.version="${GRAPHITI_CORE_VERSION}"
+      graphiti.core.version="${GRAPHITI_CORE_VERSION}" \
+      graphiti.mcp.provider-extra="${MCP_PROVIDER_EXTRA}"
 
 # Expose ports
 EXPOSE 6379 3000 8000

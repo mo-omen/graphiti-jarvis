@@ -62,6 +62,12 @@ class OpenAIClient(BaseOpenAIClient):
         else:
             self.client = client
 
+        # Detect whether we're talking to native OpenAI. Third-party OpenAI-compatible
+        # providers (OpenRouter, Ollama, etc.) may not support the Responses API that
+        # newer SDK versions route beta.chat.completions.parse through.
+        base_url = config.base_url if config else None
+        self._is_native_openai = not base_url or 'api.openai.com' in str(base_url)
+
     async def _create_structured_completion(
         self,
         model: str,
@@ -72,33 +78,61 @@ class OpenAIClient(BaseOpenAIClient):
         reasoning: str | None = None,
         verbosity: str | None = None,
     ):
-        """Create a structured completion using OpenAI's beta parse API."""
-        # Reasoning models (gpt-5 family) don't support temperature
+        """Create a structured completion using the appropriate API.
+
+        Non-reasoning models use beta.chat.completions.parse (compatible with all
+        OpenAI-compatible providers). Reasoning models (o1/o3/gpt-5) use
+        responses.parse to support reasoning effort and verbosity parameters.
+        """
         is_reasoning_model = (
             model.startswith('gpt-5') or model.startswith('o1') or model.startswith('o3')
         )
 
-        request_kwargs = {
+        if not is_reasoning_model:
+            if self._is_native_openai:
+                # Native OpenAI: use beta.chat.completions.parse for full structured output
+                return await self.client.beta.chat.completions.parse(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_format=response_model,  # type: ignore
+                )
+            else:
+                # Third-party provider (OpenRouter, Ollama, etc.): beta.chat.completions.parse
+                # in SDK >=1.91 routes through the Responses API (/responses) which these
+                # providers don't support. Fall back to chat.completions.create with
+                # json_schema response_format so we stay on the /chat/completions endpoint.
+                return await self.client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_format={
+                        'type': 'json_schema',
+                        'json_schema': {
+                            'name': response_model.__name__,
+                            'schema': response_model.model_json_schema(),
+                            'strict': False,
+                        },
+                    },  # type: ignore
+                )
+
+        # Reasoning models: use responses API with reasoning/verbosity support
+        request_kwargs: dict = {
             'model': model,
             'input': messages,  # type: ignore
             'max_output_tokens': max_tokens,
             'text_format': response_model,  # type: ignore
         }
 
-        temperature_value = temperature if not is_reasoning_model else None
-        if temperature_value is not None:
-            request_kwargs['temperature'] = temperature_value
-
-        # Only include reasoning and verbosity parameters for reasoning models
-        if is_reasoning_model and reasoning is not None:
+        if reasoning is not None:
             request_kwargs['reasoning'] = {'effort': reasoning}  # type: ignore
 
-        if is_reasoning_model and verbosity is not None:
+        if verbosity is not None:
             request_kwargs['text'] = {'verbosity': verbosity}  # type: ignore
 
-        response = await self.client.responses.parse(**request_kwargs)
-
-        return response
+        return await self.client.responses.parse(**request_kwargs)
 
     async def _create_completion(
         self,

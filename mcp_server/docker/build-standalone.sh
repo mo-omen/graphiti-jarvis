@@ -21,18 +21,20 @@ echo "Building standalone Docker image..."
 docker build \
   --build-arg MCP_SERVER_VERSION="${MCP_VERSION}" \
   --build-arg GRAPHITI_CORE_VERSION="${GRAPHITI_CORE_VERSION}" \
+  --build-arg MCP_PROVIDER_EXTRA="${MCP_PROVIDER_EXTRA:-gemini}" \
   --build-arg BUILD_DATE="${BUILD_DATE}" \
   --build-arg VCS_REF="${VCS_REF}" \
   -f Dockerfile.standalone \
   -t "zepai/knowledge-graph-mcp:standalone" \
   -t "zepai/knowledge-graph-mcp:${MCP_VERSION}-standalone" \
   -t "zepai/knowledge-graph-mcp:${MCP_VERSION}-graphiti-${GRAPHITI_CORE_VERSION}-standalone" \
-  ..
+  ../..
 
 echo ""
 echo "Build complete!"
 echo "  MCP Server Version: ${MCP_VERSION}"
 echo "  Graphiti Core Version: ${GRAPHITI_CORE_VERSION}"
+echo "  Provider Extra: ${MCP_PROVIDER_EXTRA:-gemini}"
 echo "  Build Date: ${BUILD_DATE}"
 echo "  VCS Ref: ${VCS_REF}"
 echo ""

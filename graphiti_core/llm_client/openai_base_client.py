@@ -114,20 +114,36 @@ class BaseOpenAIClient(LLMClient):
             return self.model or DEFAULT_MODEL
 
     def _handle_structured_response(self, response: Any) -> tuple[dict[str, Any], int, int]:
-        """Handle structured response parsing and validation.
+        """Handle structured response parsing for both chat completions and responses API.
 
         Returns:
             tuple: (parsed_response, input_tokens, output_tokens)
         """
-        response_object = response.output_text
-
-        # Extract token usage
         input_tokens = 0
         output_tokens = 0
+
+        # ParsedChatCompletion (from beta.chat.completions.parse — non-reasoning models)
+        if hasattr(response, 'choices') and response.choices:
+            if hasattr(response, 'usage') and response.usage:
+                input_tokens = getattr(response.usage, 'prompt_tokens', 0) or 0
+                output_tokens = getattr(response.usage, 'completion_tokens', 0) or 0
+            message = response.choices[0].message
+            if hasattr(message, 'parsed') and message.parsed is not None:
+                return message.parsed.model_dump(), input_tokens, output_tokens
+            elif message.content:
+                # Third-party providers return JSON text in content rather than parsed
+                return json.loads(message.content), input_tokens, output_tokens
+            elif hasattr(message, 'refusal') and message.refusal:
+                raise RefusalError(message.refusal)
+            else:
+                raise Exception(f'Invalid response from LLM: {response}')
+
+        # ParsedResponse (from responses.parse — reasoning models)
         if hasattr(response, 'usage') and response.usage:
             input_tokens = getattr(response.usage, 'input_tokens', 0) or 0
             output_tokens = getattr(response.usage, 'output_tokens', 0) or 0
 
+        response_object = response.output_text
         if response_object:
             return json.loads(response_object), input_tokens, output_tokens
         elif hasattr(response, 'refusal') and response.refusal:
